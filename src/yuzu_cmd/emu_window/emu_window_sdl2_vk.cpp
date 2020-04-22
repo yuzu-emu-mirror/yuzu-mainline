@@ -29,6 +29,7 @@ EmuWindow_SDL2_VK::EmuWindow_SDL2_VK(Core::System& system, bool fullscreen)
                          SDL_WINDOW_RESIZABLE | SDL_WINDOW_ALLOW_HIGHDPI);
 
     SDL_SysWMinfo wm;
+    SDL_VERSION(&wm.version);
     if (SDL_GetWindowWMInfo(render_window, &wm) == SDL_FALSE) {
         LOG_CRITICAL(Frontend, "Failed to get information from the window manager");
         std::exit(EXIT_FAILURE);
