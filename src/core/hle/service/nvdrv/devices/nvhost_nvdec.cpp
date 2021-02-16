@@ -37,6 +37,7 @@ NvResult nvhost_nvdec::Ioctl1(Ioctl command, const std::vector<u8>& input,
                 Tegra::ChCommandHeaderList cmdlist(1);
                 cmdlist[0] = Tegra::ChCommandHeader{0xDEADB33F};
                 system.GPU().PushCommandBuffer(cmdlist);
+                system.GPU().MemoryManager().InvalidateQueuedCaches();
             }
             return UnmapBuffer(input, output);
         }
