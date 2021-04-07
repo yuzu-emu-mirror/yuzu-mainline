@@ -36,6 +36,7 @@ NvResult nvhost_nvdec::Ioctl1(DeviceFD fd, Ioctl command, const std::vector<u8>&
                 LOG_INFO(Service_NVDRV, "NVDEC video stream ended");
                 Tegra::ChCommandHeaderList cmdlist{{0xDEADB33F}};
                 system.GPU().PushCommandBuffer(cmdlist);
+                system.GPU().MemoryManager().InvalidateQueuedCaches();
             }
             return UnmapBuffer(input, output);
         }
