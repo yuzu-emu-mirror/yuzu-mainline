@@ -74,6 +74,8 @@ public:
     void BindGraphicsUniformBuffer(size_t stage, u32 index, GPUVAddr gpu_addr, u32 size) override;
     void FlushAll() override;
     void FlushRegion(VAddr addr, u64 size) override;
+    void InvalidateExceptTextureCache(VAddr addr, u64 size) override;
+    void InvalidateTextureCache(VAddr addr, u64 size) override;
     bool MustFlushRegion(VAddr addr, u64 size) override;
     void InvalidateRegion(VAddr addr, u64 size) override;
     void OnCPUWrite(VAddr addr, u64 size) override;
