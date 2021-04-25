@@ -31,9 +31,8 @@ NvResult nvhost_nvdec::Ioctl1(DeviceFD fd, Ioctl command, const std::vector<u8>&
             return SetSubmitTimeout(input, output);
         case 0x9:
             return MapBuffer(input, output);
-        case 0xa: {
+        case 0xa:
             return UnmapBuffer(input, output);
-        }
         default:
             break;
         }
@@ -68,6 +67,7 @@ void nvhost_nvdec::OnOpen(DeviceFD fd) {}
 
 void nvhost_nvdec::OnClose(DeviceFD fd) {
     system.GPU().ClearCommandBuffer();
+    system.GPU().MemoryManager().InvalidateQueuedCaches();
 }
 
 } // namespace Service::Nvidia::Devices
