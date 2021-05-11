@@ -19,8 +19,8 @@ public:
 
 private:
     void ConvertCurrentObjectToDomain(Kernel::HLERequestContext& ctx);
-    void CloneCurrentObject(Kernel::HLERequestContext& ctx);
-    void CloneCurrentObjectEx(Kernel::HLERequestContext& ctx);
+    void DuplicateSession(Kernel::HLERequestContext& ctx);
+    void DuplicateSessionEx(Kernel::HLERequestContext& ctx);
     void QueryPointerBufferSize(Kernel::HLERequestContext& ctx);
 };
 
