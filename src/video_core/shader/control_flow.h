@@ -5,6 +5,7 @@
 #pragma once
 
 #include <list>
+#include <map>
 #include <optional>
 #include <set>
 #include <variant>
@@ -101,7 +102,7 @@ struct ShaderBlock {
     }
 };
 
-struct ShaderCharacteristics {
+struct ShaderFunction {
     std::list<ShaderBlock> blocks{};
     std::set<u32> labels{};
     u32 start{};
@@ -110,8 +111,12 @@ struct ShaderCharacteristics {
     CompilerSettings settings{};
 };
 
-std::unique_ptr<ShaderCharacteristics> ScanFlow(const ProgramCode& program_code, u32 start_address,
-                                                const CompilerSettings& settings,
-                                                Registry& registry);
+struct ShaderProgram {
+    ShaderFunction main;
+    std::map<u32, ShaderFunction> subfunctions;
+};
+
+std::unique_ptr<ShaderProgram> ScanFlow(const ProgramCode& program_code, u32 start_address,
+                                        const CompilerSettings& settings, Registry& registry);
 
 } // namespace VideoCommon::Shader
