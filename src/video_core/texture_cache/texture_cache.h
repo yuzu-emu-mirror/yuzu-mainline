@@ -1079,7 +1079,7 @@ ImageId TextureCache<P>::JoinImages(const ImageInfo& info, GPUVAddr gpu_addr, VA
 template <class P>
 typename TextureCache<P>::BlitImages TextureCache<P>::GetBlitImages(
     const Tegra::Engines::Fermi2D::Surface& dst, const Tegra::Engines::Fermi2D::Surface& src) {
-    static constexpr auto FIND_OPTIONS = RelaxedOptions::Format | RelaxedOptions::Samples;
+    static constexpr auto FIND_OPTIONS = RelaxedOptions::Samples;
     const GPUVAddr dst_addr = dst.Address();
     const GPUVAddr src_addr = src.Address();
     ImageInfo dst_info(dst);
@@ -1093,9 +1093,7 @@ typename TextureCache<P>::BlitImages TextureCache<P>::GetBlitImages(
         const ImageBase* const dst_image = dst_id ? &slot_images[dst_id] : nullptr;
         const ImageBase* const src_image = src_id ? &slot_images[src_id] : nullptr;
         DeduceBlitImages(dst_info, src_info, dst_image, src_image);
-        if (GetFormatType(dst_info.format) != GetFormatType(src_info.format)) {
-            continue;
-        }
+        ASSERT(GetFormatType(dst_info.format) == GetFormatType(src_info.format));
         RelaxedOptions find_options{};
         if (src_info.num_samples > 1) {
             // it's a resolve, we must enforce the same format.
@@ -1783,7 +1781,13 @@ void TextureCache<P>::CopyImage(ImageId dst_id, ImageId src_id, std::vector<Imag
         const SubresourceExtent src_extent{.levels = 1, .layers = 1};
         const SubresourceRange dst_range{.base = dst_base, .extent = dst_extent};
         const SubresourceRange src_range{.base = src_base, .extent = src_extent};
-        const ImageViewInfo dst_view_info(ImageViewType::e2D, dst.info.format, dst_range);
+        PixelFormat dst_format = dst.info.format;
+        if (GetFormatType(src.info.format) == SurfaceType::DepthStencil &&
+            GetFormatType(dst_format) == SurfaceType::ColorTexture &&
+            BytesPerBlock(dst_format) == 4) {
+            dst_format = PixelFormat::A8B8G8R8_UNORM;
+        }
+        const ImageViewInfo dst_view_info(ImageViewType::e2D, dst_format, dst_range);
         const ImageViewInfo src_view_info(ImageViewType::e2D, src.info.format, src_range);
         const auto [dst_framebuffer_id, dst_view_id] = RenderTargetFromImage(dst_id, dst_view_info);
         Framebuffer* const dst_framebuffer = &slot_framebuffers[dst_framebuffer_id];
