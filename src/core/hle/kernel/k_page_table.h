@@ -102,8 +102,8 @@ private:
                        OperationType operation);
     ResultCode Operate(VAddr addr, std::size_t num_pages, KMemoryPermission perm,
                        OperationType operation, PAddr map_addr = 0);
-    constexpr VAddr GetRegionAddress(KMemoryState state) const;
-    constexpr std::size_t GetRegionSize(KMemoryState state) const;
+    VAddr GetRegionAddress(KMemoryState state) const;
+    std::size_t GetRegionSize(KMemoryState state) const;
 
     ResultCode CheckMemoryStateContiguous(std::size_t* out_blocks_needed, VAddr addr,
                                           std::size_t size, KMemoryState state_mask,
@@ -253,9 +253,10 @@ public:
     constexpr bool IsInsideASLRRegion(VAddr address, std::size_t size) const {
         return !IsOutsideASLRRegion(address, size);
     }
-
-    PAddr GetPhysicalAddr(VAddr addr) {
-        ASSERT(IsLockedByCurrentThread());
+    constexpr std::size_t GetNumGuardPages() const {
+        return IsKernel() ? 1 : 4;
+    }
+    PAddr GetPhysicalAddr(VAddr addr) const {
         const auto backing_addr = page_table_impl.backing_addr[addr >> PageBits];
         ASSERT(backing_addr);
         return backing_addr + addr;
@@ -274,10 +275,6 @@ private:
     }
     constexpr bool IsAslrEnabled() const {
         return is_aslr_enabled;
-    }
-
-    constexpr std::size_t GetNumGuardPages() const {
-        return IsKernel() ? 1 : 4;
     }
 
     constexpr bool ContainsPages(VAddr addr, std::size_t num_pages) const {
@@ -310,6 +307,8 @@ private:
 
     bool is_kernel{};
     bool is_aslr_enabled{};
+
+    u32 heap_fill_value{};
 
     KMemoryManager::Pool memory_pool{KMemoryManager::Pool::Application};
     KMemoryManager::Direction allocation_option{KMemoryManager::Direction::FromFront};
