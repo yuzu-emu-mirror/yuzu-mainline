@@ -273,11 +273,12 @@ ResultCode KPageTable::MapProcessCode(VAddr addr, std::size_t num_pages, KMemory
     R_TRY(this->CheckMemoryState(addr, size, KMemoryState::All, KMemoryState::Free,
                                  KMemoryPermission::None, KMemoryPermission::None,
                                  KMemoryAttribute::None, KMemoryAttribute::None));
+    KPageLinkedList pg;
+    R_TRY(system.Kernel().MemoryManager().AllocateAndOpen(
+        &pg, num_pages,
+        KMemoryManager::EncodeOption(KMemoryManager::Pool::Application, allocation_option)));
 
-    KPageLinkedList page_linked_list;
-    R_TRY(system.Kernel().MemoryManager().Allocate(page_linked_list, num_pages, memory_pool,
-                                                   allocation_option));
-    R_TRY(Operate(addr, num_pages, page_linked_list, OperationType::MapGroup));
+    R_TRY(Operate(addr, num_pages, pg, OperationType::MapGroup));
 
     block_manager->Update(addr, num_pages, state, perm);
 
@@ -291,10 +292,11 @@ ResultCode KPageTable::MapCodeMemory(VAddr dst_addr, VAddr src_addr, std::size_t
 
     KMemoryState state{};
     KMemoryPermission perm{};
-    CASCADE_CODE(CheckMemoryState(&state, &perm, nullptr, nullptr, src_addr, size,
-                                  KMemoryState::All, KMemoryState::Normal, KMemoryPermission::All,
-                                  KMemoryPermission::UserReadWrite, KMemoryAttribute::Mask,
-                                  KMemoryAttribute::None, KMemoryAttribute::IpcAndDeviceMapped));
+    // CASCADE_CODE(CheckMemoryState(&state, &perm, nullptr, nullptr, src_addr, size,
+    //                               KMemoryState::All, KMemoryState::Normal,
+    //                               KMemoryPermission::All, KMemoryPermission::UserReadWrite,
+    //                               KMemoryAttribute::Mask, KMemoryAttribute::None,
+    //                               KMemoryAttribute::IpcAndDeviceMapped));
 
     if (IsRegionMapped(dst_addr, size)) {
         return ResultInvalidCurrentMemory;
@@ -321,7 +323,12 @@ ResultCode KPageTable::MapCodeMemory(VAddr dst_addr, VAddr src_addr, std::size_t
     return ResultSuccess;
 }
 
-ResultCode KPageTable::UnmapCodeMemory(VAddr dst_addr, VAddr src_addr, std::size_t size) {
+ResultCode KPageTable::UnmapCodeMemory(VAddr dst_address, VAddr src_address, std::size_t size) {
+    // Validate the mapping request.
+    R_UNLESS(this->CanContain(dst_address, size, KMemoryState::AliasCode),
+             ResultInvalidMemoryRegion);
+
+    // Lock the table.
     KScopedLightLock lk(general_lock);
 
     if (!size) {
@@ -330,26 +337,66 @@ ResultCode KPageTable::UnmapCodeMemory(VAddr dst_addr, VAddr src_addr, std::size
 
     const std::size_t num_pages{size / PageSize};
 
-    CASCADE_CODE(CheckMemoryState(nullptr, nullptr, nullptr, nullptr, src_addr, size,
-                                  KMemoryState::All, KMemoryState::Normal, KMemoryPermission::None,
-                                  KMemoryPermission::None, KMemoryAttribute::Mask,
-                                  KMemoryAttribute::Locked, KMemoryAttribute::IpcAndDeviceMapped));
+    // Verify that the source memory is locked normal heap.
+    std::size_t num_src_allocator_blocks{};
+    R_TRY(this->CheckMemoryState(std::addressof(num_src_allocator_blocks), src_address, size,
+                                 KMemoryState::All, KMemoryState::Normal, KMemoryPermission::None,
+                                 KMemoryPermission::None, KMemoryAttribute::All,
+                                 KMemoryAttribute::Locked));
 
-    KMemoryState state{};
-    CASCADE_CODE(CheckMemoryState(
-        &state, nullptr, nullptr, nullptr, dst_addr, PageSize, KMemoryState::FlagCanCodeAlias,
+    // Verify that the destination memory is aliasable code.
+    std::size_t num_dst_allocator_blocks{};
+    R_TRY(this->CheckMemoryStateContiguous(
+        std::addressof(num_dst_allocator_blocks), dst_address, size, KMemoryState::FlagCanCodeAlias,
         KMemoryState::FlagCanCodeAlias, KMemoryPermission::None, KMemoryPermission::None,
-        KMemoryAttribute::Mask, KMemoryAttribute::None, KMemoryAttribute::IpcAndDeviceMapped));
-    CASCADE_CODE(CheckMemoryState(dst_addr, size, KMemoryState::All, state, KMemoryPermission::None,
-                                  KMemoryPermission::None, KMemoryAttribute::Mask,
-                                  KMemoryAttribute::None));
-    CASCADE_CODE(Operate(dst_addr, num_pages, KMemoryPermission::None, OperationType::Unmap));
+        KMemoryAttribute::All, KMemoryAttribute::None));
 
-    block_manager->Update(dst_addr, num_pages, KMemoryState::Free);
-    block_manager->Update(src_addr, num_pages, KMemoryState::Normal,
-                          KMemoryPermission::UserReadWrite);
+    // Determine whether any pages being unmapped are code.
+    bool any_code_pages = false;
+    {
+        KMemoryBlockManager::const_iterator it = block_manager->FindIterator(dst_address);
+        while (true) {
+            // Get the memory info.
+            const KMemoryInfo info = it->GetMemoryInfo();
 
-    system.InvalidateCpuInstructionCacheRange(dst_addr, size);
+            // Check if the memory has code flag.
+            if ((info.GetState() & KMemoryState::FlagCode) != KMemoryState::None) {
+                any_code_pages = true;
+                break;
+            }
+
+            // Check if we're done.
+            if (dst_address + size - 1 <= info.GetLastAddress()) {
+                break;
+            }
+
+            // Advance.
+            ++it;
+        }
+    }
+
+    // Ensure that we maintain the instruction cache.
+    bool reprotected_pages = false;
+    SCOPE_EXIT({
+        if (reprotected_pages && any_code_pages) {
+            system.InvalidateCpuInstructionCacheRange(dst_address, size);
+        }
+    });
+
+    // Unmap.
+    {
+        // TODO(bunnei): We free the virtual address space, but do not nullptr the pointers in the
+        // backing page table. This is a workaround because of an issue where CPU emulation may have
+        // not quite finished running code when NROs are unloaded.
+
+        // Apply the memory block updates.
+        block_manager->Update(dst_address, num_pages, KMemoryState::None);
+        block_manager->Update(src_address, num_pages, KMemoryState::Normal,
+                              KMemoryPermission::UserReadWrite);
+
+        // Note that we reprotected pages.
+        reprotected_pages = true;
+    }
 
     return ResultSuccess;
 }
@@ -443,9 +490,10 @@ ResultCode KPageTable::MapPhysicalMemory(VAddr address, std::size_t size) {
             R_UNLESS(memory_reservation.Succeeded(), ResultLimitReached);
 
             // Allocate pages for the new memory.
-            KPageLinkedList page_linked_list;
-            R_TRY(system.Kernel().MemoryManager().Allocate(
-                page_linked_list, (size - mapped_size) / PageSize, memory_pool, allocation_option));
+            KPageLinkedList pg;
+            R_TRY(system.Kernel().MemoryManager().AllocateAndOpenForProcess(
+                &pg, (size - mapped_size) / PageSize,
+                KMemoryManager::EncodeOption(memory_pool, allocation_option), 0, 0));
 
             // Map the memory.
             {
@@ -547,7 +595,7 @@ ResultCode KPageTable::MapPhysicalMemory(VAddr address, std::size_t size) {
                 });
 
                 // Iterate over the memory.
-                auto pg_it = page_linked_list.Nodes().begin();
+                auto pg_it = pg.Nodes().begin();
                 PAddr pg_phys_addr = pg_it->GetAddress();
                 size_t pg_pages = pg_it->GetNumPages();
 
@@ -571,7 +619,7 @@ ResultCode KPageTable::MapPhysicalMemory(VAddr address, std::size_t size) {
                             // Check if we're at the end of the physical block.
                             if (pg_pages == 0) {
                                 // Ensure there are more pages to map.
-                                ASSERT(pg_it != page_linked_list.Nodes().end());
+                                ASSERT(pg_it != pg.Nodes().end());
 
                                 // Advance our physical block.
                                 ++pg_it;
@@ -841,9 +889,13 @@ ResultCode KPageTable::UnmapPhysicalMemory(VAddr address, std::size_t size) {
     process->GetResourceLimit()->Release(LimitableResource::PhysicalMemory, mapped_size);
 
     // Update memory blocks.
-    system.Kernel().MemoryManager().Free(pg, size / PageSize, memory_pool, allocation_option);
     block_manager->Update(address, size / PageSize, KMemoryState::Free, KMemoryPermission::None,
                           KMemoryAttribute::None);
+
+    // TODO(bunnei): This is a workaround until the next set of changes, where we add reference
+    // counting for mapped pages. Until then, we must manually close the reference to the page
+    // group.
+    system.Kernel().MemoryManager().Close(pg);
 
     // We succeeded.
     remap_guard.Cancel();
@@ -1270,9 +1322,16 @@ ResultCode KPageTable::SetHeapSize(VAddr* out, std::size_t size) {
     R_UNLESS(memory_reservation.Succeeded(), ResultLimitReached);
 
     // Allocate pages for the heap extension.
-    KPageLinkedList page_linked_list;
-    R_TRY(system.Kernel().MemoryManager().Allocate(page_linked_list, allocation_size / PageSize,
-                                                   memory_pool, allocation_option));
+    KPageLinkedList pg;
+    R_TRY(system.Kernel().MemoryManager().AllocateAndOpen(
+        &pg, allocation_size / PageSize,
+        KMemoryManager::EncodeOption(memory_pool, allocation_option)));
+
+    // Clear all the newly allocated pages.
+    for (const auto& it : pg.Nodes()) {
+        std::memset(system.DeviceMemory().GetPointer(it.GetAddress()), heap_fill_value,
+                    it.GetSize());
+    }
 
     // Map the pages.
     {
@@ -1291,7 +1350,7 @@ ResultCode KPageTable::SetHeapSize(VAddr* out, std::size_t size) {
 
         // Map the pages.
         const auto num_pages = allocation_size / PageSize;
-        R_TRY(Operate(current_heap_end, num_pages, page_linked_list, OperationType::MapGroup));
+        R_TRY(Operate(current_heap_end, num_pages, pg, OperationType::MapGroup));
 
         // Clear all the newly allocated pages.
         for (std::size_t cur_page = 0; cur_page < num_pages; ++cur_page) {
@@ -1339,8 +1398,9 @@ ResultVal<VAddr> KPageTable::AllocateAndMapMemory(std::size_t needed_num_pages, 
         R_TRY(Operate(addr, needed_num_pages, perm, OperationType::Map, map_addr));
     } else {
         KPageLinkedList page_group;
-        R_TRY(system.Kernel().MemoryManager().Allocate(page_group, needed_num_pages, memory_pool,
-                                                       allocation_option));
+        R_TRY(system.Kernel().MemoryManager().AllocateAndOpenForProcess(
+            &page_group, needed_num_pages,
+            KMemoryManager::EncodeOption(memory_pool, allocation_option), 0, 0));
         R_TRY(Operate(addr, needed_num_pages, page_group, OperationType::MapGroup));
     }
 
@@ -1547,7 +1607,7 @@ ResultCode KPageTable::Operate(VAddr addr, std::size_t num_pages, KMemoryPermiss
     return ResultSuccess;
 }
 
-constexpr VAddr KPageTable::GetRegionAddress(KMemoryState state) const {
+VAddr KPageTable::GetRegionAddress(KMemoryState state) const {
     switch (state) {
     case KMemoryState::Free:
     case KMemoryState::Kernel:
@@ -1583,7 +1643,7 @@ constexpr VAddr KPageTable::GetRegionAddress(KMemoryState state) const {
     }
 }
 
-constexpr std::size_t KPageTable::GetRegionSize(KMemoryState state) const {
+std::size_t KPageTable::GetRegionSize(KMemoryState state) const {
     switch (state) {
     case KMemoryState::Free:
     case KMemoryState::Kernel:
