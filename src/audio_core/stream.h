@@ -123,6 +123,9 @@ private:
     SinkStream& sink_stream;                ///< Output sink for the stream
     Core::Timing::CoreTiming& core_timing;  ///< Core timing instance.
     std::string name;                       ///< Name of the stream, must be unique
+#ifndef _WIN32
+    std::chrono::nanoseconds expected_cb_time = {}; ///< Estimated time of next callback
+#endif
 };
 
 using StreamPtr = std::shared_ptr<Stream>;
