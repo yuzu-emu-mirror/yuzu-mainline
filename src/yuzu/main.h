@@ -202,6 +202,8 @@ private:
     void ConnectMenuEvents();
     void UpdateMenuState();
 
+    void SetupPrepareForSleep();
+
     void PreventOSSleep();
     void AllowOSSleep();
 
@@ -261,6 +263,7 @@ private slots:
     void OnPauseGame();
     void OnPauseContinueGame();
     void OnStopGame();
+    void OnPrepareForSleep(bool prepare_sleep);
     void OnMenuReportCompatibility();
     void OnOpenModsPage();
     void OnOpenQuickstartGuide();
