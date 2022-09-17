@@ -63,3 +63,12 @@ cp exec-x86_64.so AppDir/usr/optional/exec.so
 cp AppRun-patched-x86_64 AppDir/AppRun
 cp --dereference /usr/lib/x86_64-linux-gnu/libstdc++.so.6 AppDir/usr/optional/libstdc++/libstdc++.so.6
 cp --dereference /lib/x86_64-linux-gnu/libgcc_s.so.1 AppDir/usr/optional/libgcc_s/libgcc_s.so.1
+
+# Workaround for different distros putting the ca-certificate bundles in different locations
+# Location correct for Ubuntu 18.04 (currently used Docker image is based on this
+cp --dereference /etc/ssl/certs/ca-certificates.crt AppDir/ca-certificates.pem
+
+wget -nc https://github.com/Docteh/ext-linux-bin/raw/butts/appimage/checkrt-x86_64
+cp checkrt-x86_64 AppDir/usr/optional/checkrt
+cp ../dist/AppRun AppDir/AppRun
+chmod 755 AppDir/AppRun AppDir/usr/optional/checkrt AppDir/usr/optional/exec.so
