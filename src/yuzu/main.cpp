@@ -2914,9 +2914,14 @@ static QScreen* GuessCurrentScreen(QWidget* window) {
         });
 }
 
+bool GMainWindow::UsingExclusiveFullscreen() {
+    return Settings::values.fullscreen_mode.GetValue() == Settings::FullscreenMode::Exclusive ||
+           QGuiApplication::platformName() == QStringLiteral("wayland");
+}
+
 void GMainWindow::ShowFullscreen() {
-    const auto show_fullscreen = [](QWidget* window) {
-        if (Settings::values.fullscreen_mode.GetValue() == Settings::FullscreenMode::Exclusive) {
+    const auto show_fullscreen = [this](QWidget* window) {
+        if (UsingExclusiveFullscreen()) {
             window->showFullScreen();
             return;
         }
@@ -2944,7 +2949,7 @@ void GMainWindow::ShowFullscreen() {
 
 void GMainWindow::HideFullscreen() {
     if (ui->action_Single_Window_Mode->isChecked()) {
-        if (Settings::values.fullscreen_mode.GetValue() == Settings::FullscreenMode::Exclusive) {
+        if (UsingExclusiveFullscreen()) {
             showNormal();
             restoreGeometry(UISettings::values.geometry);
         } else {
@@ -2958,7 +2963,7 @@ void GMainWindow::HideFullscreen() {
         statusBar()->setVisible(ui->action_Show_Status_Bar->isChecked());
         ui->menubar->show();
     } else {
-        if (Settings::values.fullscreen_mode.GetValue() == Settings::FullscreenMode::Exclusive) {
+        if (UsingExclusiveFullscreen()) {
             render_window->showNormal();
             render_window->restoreGeometry(UISettings::values.renderwindow_geometry);
         } else {
