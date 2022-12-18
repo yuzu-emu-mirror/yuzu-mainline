@@ -3594,6 +3594,11 @@ UUID: %2</translation>
         <translation>随机数生成器种子</translation>
     </message>
     <message>
+        <location filename="../../src/yuzu/configuration/configure_system.ui" line="438"/>
+        <source>Device Name</source>
+        <translation>设备名称</translation>
+    </message>
+    <message>
         <location filename="../../src/yuzu/configuration/configure_system.ui" line="439"/>
         <source>Mono</source>
         <translation>单声道</translation>
