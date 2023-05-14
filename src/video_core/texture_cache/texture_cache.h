@@ -1397,27 +1397,6 @@ ImageId TextureCache<P>::JoinImages(const ImageInfo& info, GPUVAddr gpu_addr, VA
         return lhs_image.modification_tick < rhs_image.modification_tick;
     });
 
-    for (const ImageId overlap_id : overlap_ids) {
-        Image& overlap = slot_images[overlap_id];
-        if (True(overlap.flags & ImageFlagBits::GpuModified)) {
-            new_image.flags |= ImageFlagBits::GpuModified;
-            const auto& resolution = Settings::values.resolution_info;
-            const SubresourceBase base = new_image.TryFindBase(overlap.gpu_addr).value();
-            const u32 up_scale = can_rescale ? resolution.up_scale : 1;
-            const u32 down_shift = can_rescale ? resolution.down_shift : 0;
-            auto copies = MakeShrinkImageCopies(new_info, overlap.info, base, up_scale, down_shift);
-            if (overlap.info.num_samples != new_image.info.num_samples) {
-                runtime.CopyImageMSAA(new_image, overlap, std::move(copies));
-            } else {
-                runtime.CopyImage(new_image, overlap, std::move(copies));
-            }
-        }
-        if (True(overlap.flags & ImageFlagBits::Tracked)) {
-            UntrackImage(overlap, overlap_id);
-        }
-        UnregisterImage(overlap_id);
-        DeleteImage(overlap_id);
-    }
     ImageBase& new_image_base = new_image;
     for (const ImageId aliased_id : right_aliased_ids) {
         ImageBase& aliased = slot_images[aliased_id];
@@ -1440,6 +1419,33 @@ ImageId TextureCache<P>::JoinImages(const ImageInfo& info, GPUVAddr gpu_addr, VA
             new_image.flags |= ImageFlagBits::BadOverlap;
         }
     }
+
+    SynchronizeAliases(new_image_id);
+
+    for (const ImageId overlap_id : overlap_ids) {
+        Image& overlap = slot_images[overlap_id];
+        if (True(overlap.flags & ImageFlagBits::GpuModified) &&
+            overlap.modification_tick > new_image.modification_tick) {
+            new_image.flags |= ImageFlagBits::GpuModified;
+            const auto& resolution = Settings::values.resolution_info;
+            const SubresourceBase base = new_image.TryFindBase(overlap.gpu_addr).value();
+            const u32 up_scale = can_rescale ? resolution.up_scale : 1;
+            const u32 down_shift = can_rescale ? resolution.down_shift : 0;
+            auto copies = MakeShrinkImageCopies(new_info, overlap.info, base, up_scale, down_shift);
+            if (overlap.info.num_samples != new_image.info.num_samples) {
+                runtime.CopyImageMSAA(new_image, overlap, std::move(copies));
+            } else {
+                runtime.CopyImage(new_image, overlap, std::move(copies));
+            }
+            new_image.modification_tick = overlap.modification_tick;
+        }
+        if (True(overlap.flags & ImageFlagBits::Tracked)) {
+            UntrackImage(overlap, overlap_id);
+        }
+        UnregisterImage(overlap_id);
+        DeleteImage(overlap_id);
+    }
+
     RegisterImage(new_image_id);
     return new_image_id;
 }
