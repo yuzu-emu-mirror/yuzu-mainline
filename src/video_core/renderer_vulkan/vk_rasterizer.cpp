@@ -62,6 +62,7 @@ struct DrawParams {
 
 VkViewport GetViewportState(const Device& device, const Maxwell& regs, size_t index, float scale) {
     const auto& src = regs.viewport_transform[index];
+    const u32 rt_height = src.scale_y != 0 ? regs.rt[index].height : 0;
     const auto conv = [scale](float value) {
         float new_value = value * scale;
         if (scale < 1.0f) {
@@ -82,7 +83,7 @@ VkViewport GetViewportState(const Device& device, const Maxwell& regs, size_t in
     }
 
     if (y_negate) {
-        y += height;
+        y += conv(static_cast<f32>(rt_height));
         height = -height;
     }
 
